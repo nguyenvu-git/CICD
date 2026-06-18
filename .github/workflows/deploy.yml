@@ -15,6 +15,7 @@ jobs:
 
       # Bước 2: Ra lệnh cho Docker dập container cũ, build và bật container mới lên
       - name: Khởi chạy Docker Compose
+
         run: |
-          docker compose down
+          docker compose down --remove-orphans || true
           docker compose up -d --build

@@ -32,7 +32,7 @@ export default function App() {
               © {new Date().getFullYear()} Frontend Stack Boilerplate. All
               rights reserved.
             </p>
-            <div className="flex gap-4">
+            <div className="flex">
               <span className="hover:text-slate-355 transition-colors cursor-default">
                 Vite
               </span>
