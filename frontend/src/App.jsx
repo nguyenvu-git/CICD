@@ -4,6 +4,7 @@ import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import AxiosDemo from "./pages/AxiosDemo";
 import FormDemo from "./pages/FormDemo";
+import AccountManagement from "./pages/AccountManagement";
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/axios" element={<AxiosDemo />} />
             <Route path="/form" element={<FormDemo />} />
+            <Route path="/accounts" element={<AccountManagement />} />
           </Routes>
         </main>
 
