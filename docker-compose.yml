@@ -16,7 +16,7 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: root_password_cua_ban
-      MYSQL_DATABASE: qldim_db
+      MYSQL_DATABASE: restaurant_management
     ports:
       - "3306:3306"
     volumes:
@@ -37,7 +37,7 @@ services:
       DB_HOST: database
       DB_USER: root
       DB_PASSWORD: root_password_cua_ban
-      DB_NAME: qldim_db
+      DB_NAME: restaurant_management
     depends_on:
       - database
 
