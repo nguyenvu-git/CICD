@@ -40,7 +40,7 @@ export default function App() {
               </span>
               <span>•</span>
               <span className="hover:text-slate-355 transition-colors ">
-                React.js
+                React.js test
               </span>
               <span>•</span>
               <span className="hover:text-slate-355 transition-colors cursor-default">
