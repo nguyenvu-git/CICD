@@ -67,6 +67,14 @@ const mockUsers = [
   },
 ];
 
+// In-Memory mock data for Categories
+let mockCategories = [
+  { id: 1, category_name: 'Đồ uống', description: 'Nước ngọt, cà phê, trà, sinh tố', created_at: new Date().toISOString() },
+  { id: 2, category_name: 'Món chính', description: 'Cơm, phở, bún, lẩu', created_at: new Date().toISOString() },
+  { id: 3, category_name: 'Tráng miệng', description: 'Bánh ngọt, chè, kem', created_at: new Date().toISOString() },
+];
+
+
 // Connection status tracker
 let isDbConnected = false;
 
@@ -779,6 +787,225 @@ app.delete('/api/roles-management/:id', async (req, res) => {
   }
   res.status(503).json({ success: false, error: 'Database không khả dụng.' });
 });
+
+// =========================================================================
+// MODULE CRUD DANH MỤC MÓN ĂN (CATEGORIES)
+// =========================================================================
+
+// GET /api/categories - Lấy danh sách danh mục (hỗ trợ tìm kiếm)
+app.get('/api/categories', async (req, res) => {
+  const search = req.query.search || '';
+
+  if (isDbConnected) {
+    try {
+      let queryStr = 'SELECT id, category_name, description, created_at FROM categories';
+      const params = [];
+      if (search) {
+        queryStr += ' WHERE category_name LIKE ? OR description LIKE ?';
+        const pattern = `%${search}%`;
+        params.push(pattern, pattern);
+      }
+      queryStr += ' ORDER BY id DESC';
+      const [rows] = await pool.query(queryStr, params);
+      return res.json(rows);
+    } catch (err) {
+      console.warn('Failed to fetch categories from DB:', err.message);
+      isDbConnected = false;
+    }
+  }
+
+  // Fallback in-memory
+  let result = [...mockCategories];
+  if (search) {
+    const s = search.toLowerCase();
+    result = result.filter(c =>
+      (c.category_name && c.category_name.toLowerCase().includes(s)) ||
+      (c.description && c.description.toLowerCase().includes(s))
+    );
+  }
+  res.json(result);
+});
+
+// GET /api/categories/:id - Lấy chi tiết 1 danh mục
+app.get('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (isDbConnected) {
+    try {
+      const [rows] = await pool.query('SELECT * FROM categories WHERE id = ?', [id]);
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+      }
+      return res.json(rows[0]);
+    } catch (err) {
+      console.warn('Failed to fetch category by ID:', err.message);
+      isDbConnected = false;
+    }
+  }
+
+  // Fallback
+  const cat = mockCategories.find(c => c.id === parseInt(id));
+  if (!cat) {
+    return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+  }
+  res.json(cat);
+});
+
+// POST /api/categories - Tạo danh mục mới
+app.post('/api/categories', async (req, res) => {
+  const { category_name, description } = req.body;
+
+  if (!category_name || category_name.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Tên danh mục không được để trống.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      // Check duplicate category name
+      const [existing] = await pool.query('SELECT id FROM categories WHERE category_name = ?', [category_name.trim()]);
+      if (existing.length > 0) {
+        return res.status(409).json({ success: false, error: `Danh mục "${category_name}" đã tồn tại.` });
+      }
+
+      const [result] = await pool.query(
+        'INSERT INTO categories (category_name, description) VALUES (?, ?)',
+        [category_name.trim(), description || null]
+      );
+      const newId = result.insertId;
+
+      const [newCategory] = await pool.query('SELECT * FROM categories WHERE id = ?', [newId]);
+      return res.status(201).json({
+        success: true,
+        message: `Danh mục "${category_name}" đã được tạo thành công!`,
+        data: newCategory[0]
+      });
+    } catch (err) {
+      console.error('Failed to create category:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi tạo danh mục.' });
+    }
+  }
+
+  // Fallback in-memory
+  const exists = mockCategories.some(c => c.category_name.toLowerCase() === category_name.trim().toLowerCase());
+  if (exists) {
+    return res.status(409).json({ success: false, error: `Danh mục "${category_name}" đã tồn tại (Fallback).` });
+  }
+
+  const newCat = {
+    id: Math.max(...mockCategories.map(c => c.id), 0) + 1,
+    category_name: category_name.trim(),
+    description: description || '',
+    created_at: new Date().toISOString()
+  };
+  mockCategories.unshift(newCat);
+  res.status(201).json({
+    success: true,
+    message: `Danh mục "${category_name}" đã được tạo thành công (Fallback)!`,
+    data: newCat
+  });
+});
+
+// PUT /api/categories/:id - Cập nhật danh mục
+app.put('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  const { category_name, description } = req.body;
+
+  if (!category_name || category_name.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Tên danh mục không được để trống.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM categories WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+      }
+
+      // Check duplicates
+      const [duplicate] = await pool.query('SELECT id FROM categories WHERE category_name = ? AND id != ?', [category_name.trim(), id]);
+      if (duplicate.length > 0) {
+        return res.status(409).json({ success: false, error: `Danh mục "${category_name}" đã được sử dụng.` });
+      }
+
+      await pool.query(
+        'UPDATE categories SET category_name = ?, description = ? WHERE id = ?',
+        [category_name.trim(), description || null, id]
+      );
+
+      const [updated] = await pool.query('SELECT * FROM categories WHERE id = ?', [id]);
+      return res.json({
+        success: true,
+        message: `Danh mục "${category_name}" đã được cập nhật thành công!`,
+        data: updated[0]
+      });
+    } catch (err) {
+      console.error('Failed to update category:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi cập nhật danh mục.' });
+    }
+  }
+
+  // Fallback
+  const catIdx = mockCategories.findIndex(c => c.id === parseInt(id));
+  if (catIdx === -1) {
+    return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+  }
+
+  const dup = mockCategories.some(c => c.id !== parseInt(id) && c.category_name.toLowerCase() === category_name.trim().toLowerCase());
+  if (dup) {
+    return res.status(409).json({ success: false, error: `Danh mục "${category_name}" đã được sử dụng (Fallback).` });
+  }
+
+  mockCategories[catIdx] = {
+    ...mockCategories[catIdx],
+    category_name: category_name.trim(),
+    description: description || ''
+  };
+
+  res.json({
+    success: true,
+    message: `Danh mục "${category_name}" đã được cập nhật thành công (Fallback)!`,
+    data: mockCategories[catIdx]
+  });
+});
+
+// DELETE /api/categories/:id - Xóa danh mục
+app.delete('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id, category_name FROM categories WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+      }
+
+      await pool.query('DELETE FROM categories WHERE id = ?', [id]);
+
+      return res.json({
+        success: true,
+        message: `Danh mục "${existing[0].category_name}" đã được xóa thành công!`
+      });
+    } catch (err) {
+      console.error('Failed to delete category:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi xóa danh mục.' });
+    }
+  }
+
+  // Fallback
+  const catIdx = mockCategories.findIndex(c => c.id === parseInt(id));
+  if (catIdx === -1) {
+    return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+  }
+
+  const name = mockCategories[catIdx].category_name;
+  mockCategories = mockCategories.filter(c => c.id !== parseInt(id));
+
+  res.json({
+    success: true,
+    message: `Danh mục "${name}" đã được xóa thành công (Fallback)!`
+  });
+});
+
 
 // Start Express Server
 app.listen(PORT, () => {
