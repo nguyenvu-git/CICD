@@ -17,11 +17,11 @@ app.use(express.json());
 
 // Create the database connection pool using promises
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: parseInt(process.env.DB_PORT || '3306'),
-  user: process.env.DB_USER || 'dbuser',
-  password: process.env.DB_PASSWORD || 'dbpassword',
-  database: process.env.DB_NAME || 'restaurant_management',
+  host: 'database',           // Phải để là 'database' (tên service trong docker-compose)
+  port: 3306,
+  user: 'root',               // User mặc định của MySQL image
+  password: 'root_password_cua_ban', // Phải khớp với trong docker-compose.yml
+  database: 'restaurant_management',
   waitForConnections: true,
   connectionLimit: 5,
   queueLimit: 0,
@@ -779,7 +779,153 @@ app.delete('/api/roles-management/:id', async (req, res) => {
   }
   res.status(503).json({ success: false, error: 'Database không khả dụng.' });
 });
+// =========================================================================
+// IN-MEMORY MOCK DATA FOR NEW MODULES (FALLBACK)
+// =========================================================================
+let mockVouchers = [
+  { id: 1, code: 'GIAM50K', discount_type: 'amount', discount_value: 50000, min_order_value: 200000, is_active: 1, created_at: new Date().toISOString() },
+  { id: 2, code: 'SALE10', discount_type: 'percent', discount_value: 10, min_order_value: 100000, is_active: 1, created_at: new Date().toISOString() }
+];
 
+let mockCustomers = [
+  { id: 1, full_name: 'Khách vãng lai', phone: '0000000000', reward_points: 0, created_at: new Date().toISOString() },
+  { id: 2, full_name: 'Nguyễn Văn A', phone: '0901234567', reward_points: 150, created_at: new Date().toISOString() }
+];
+
+let mockInvoices = [];
+
+// =========================================================================
+// MODULE CRUD KHUYẾN MÃI / VOUCHER (CICD #17)
+// =========================================================================
+app.get('/api/vouchers', async (req, res) => {
+  if (isDbConnected) {
+    try {
+      const [rows] = await pool.query('SELECT * FROM vouchers ORDER BY id DESC');
+      return res.json({ success: true, data: rows });
+    } catch (err) {
+      console.warn('Failed to fetch vouchers from DB:', err.message);
+      isDbConnected = false;
+    }
+  }
+  res.json({ success: true, data: mockVouchers });
+});
+
+app.post('/api/vouchers', async (req, res) => {
+  const { code, discount_type, discount_value, min_order_value } = req.body;
+  if (!code) return res.status(400).json({ success: false, error: 'Mã giảm giá không được để trống.' });
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM vouchers WHERE code = ?', [code.trim().toUpperCase()]);
+      if (existing.length > 0) return res.status(409).json({ success: false, error: 'Mã giảm giá đã tồn tại.' });
+
+      const [result] = await pool.query(
+        'INSERT INTO vouchers (code, discount_type, discount_value, min_order_value) VALUES (?, ?, ?, ?)',
+        [code.trim().toUpperCase(), discount_type, discount_value, min_order_value || 0]
+      );
+      const [newVoucher] = await pool.query('SELECT * FROM vouchers WHERE id = ?', [result.insertId]);
+      return res.status(201).json({ success: true, message: 'Tạo mã thành công!', data: newVoucher[0] });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: 'Lỗi server khi tạo voucher.' });
+    }
+  }
+  
+  const exists = mockVouchers.some(v => v.code === code.trim().toUpperCase());
+  if (exists) return res.status(409).json({ success: false, error: 'Mã giảm giá đã tồn tại (Fallback).' });
+
+  const newMockVoucher = {
+    id: Math.max(...mockVouchers.map(v => v.id), 0) + 1,
+    code: code.trim().toUpperCase(), discount_type, discount_value, min_order_value: min_order_value || 0, is_active: 1
+  };
+  mockVouchers.unshift(newMockVoucher);
+  res.status(201).json({ success: true, message: 'Tạo mã thành công (Fallback)!', data: newMockVoucher });
+});
+
+// =========================================================================
+// MODULE CRUD KHÁCH HÀNG & THÀNH VIÊN (CICD #16)
+// =========================================================================
+app.post('/api/customers', async (req, res) => {
+  const { full_name, phone } = req.body;
+  if (!phone) return res.status(400).json({ success: false, error: 'Số điện thoại là bắt buộc.' });
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM customers WHERE phone = ?', [phone.trim()]);
+      if (existing.length > 0) return res.status(409).json({ success: false, error: 'Số điện thoại đã được đăng ký.' });
+
+      const [result] = await pool.query(
+        'INSERT INTO customers (full_name, phone, reward_points) VALUES (?, ?, 0)',
+        [full_name, phone.trim()]
+      );
+      const [newCustomer] = await pool.query('SELECT * FROM customers WHERE id = ?', [result.insertId]);
+      return res.status(201).json({ success: true, message: 'Thêm khách hàng thành công!', data: newCustomer[0] });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: 'Lỗi server khi thêm khách.' });
+    }
+  }
+  
+  if (mockCustomers.some(c => c.phone === phone.trim())) return res.status(409).json({ success: false, error: 'Số điện thoại đã tồn tại (Fallback).' });
+  const newCust = { id: Math.max(...mockCustomers.map(c => c.id), 0) + 1, full_name, phone: phone.trim(), reward_points: 0 };
+  mockCustomers.push(newCust);
+  res.status(201).json({ success: true, message: 'Thêm khách thành công (Fallback)!', data: newCust });
+});
+
+// =========================================================================
+// MODULE HÓA ĐƠN & TÍNH TIỀN (CICD #14)
+// =========================================================================
+app.post('/api/invoices', async (req, res) => {
+  const { customer_id, items, voucher_code } = req.body;
+  if (!items || items.length === 0) return res.status(400).json({ success: false, error: 'Giỏ hàng trống.' });
+
+  try {
+    let subTotal = items.reduce((acc, item) => acc + (item.quantity * item.price), 0);
+    let discountAmount = 0;
+
+    if (voucher_code) {
+      let voucher = null;
+      if (isDbConnected) {
+        const [vRows] = await pool.query('SELECT * FROM vouchers WHERE code = ? AND is_active = 1', [voucher_code]);
+        if (vRows.length > 0) voucher = vRows[0];
+      } else {
+        voucher = mockVouchers.find(v => v.code === voucher_code && v.is_active === 1);
+      }
+
+      if (voucher && subTotal >= voucher.min_order_value) {
+        discountAmount = voucher.discount_type === 'percent' ? subTotal * (voucher.discount_value / 100) : voucher.discount_value;
+      }
+    }
+
+    const finalTotal = Math.max(0, subTotal - discountAmount);
+    const pointsEarned = Math.floor(finalTotal / 10000);
+
+    if (isDbConnected) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [invResult] = await connection.query('INSERT INTO invoices (customer_id, sub_total, discount_amount, final_total) VALUES (?, ?, ?, ?)', [customer_id || null, subTotal, discountAmount, finalTotal]);
+        if (customer_id && pointsEarned > 0) await connection.query('UPDATE customers SET reward_points = reward_points + ? WHERE id = ?', [pointsEarned, customer_id]);
+        await connection.commit();
+        connection.release();
+        return res.status(201).json({ success: true, message: 'Thanh toán thành công!', data: { invoice_id: invResult.insertId, sub_total: subTotal, discount: discountAmount, final_total: finalTotal, points_earned: pointsEarned } });
+      } catch (dbErr) {
+        await connection.rollback();
+        connection.release();
+        throw dbErr;
+      }
+    }
+
+    const newInvoice = { id: mockInvoices.length + 1, customer_id, sub_total: subTotal, discount_amount: discountAmount, final_total: finalTotal };
+    mockInvoices.push(newInvoice);
+    if (customer_id && pointsEarned > 0) {
+      const cust = mockCustomers.find(c => c.id === customer_id);
+      if (cust) cust.reward_points += pointsEarned;
+    }
+    res.status(201).json({ success: true, message: 'Thanh toán thành công (Fallback)!', data: { ...newInvoice, points_earned: pointsEarned } });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Lỗi hệ thống khi thanh toán.' });
+  }
+});
 // Start Express Server
 app.listen(PORT, () => {
   console.log(`===========================================`);
