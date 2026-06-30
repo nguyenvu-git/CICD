@@ -7,6 +7,8 @@ import FormDemo from "./pages/FormDemo";
 import AccountManagement from "./pages/AccountManagement";
 import RoleManagement from "./pages/RoleManagement";
 import CategoryManagement from "./pages/CategoryManagement";
+import ProductManagement from "./pages/ProductManagement";
+import SupplierManagement from "./pages/SupplierManagement";
 
 export default function App() {
   return (
@@ -28,6 +30,8 @@ export default function App() {
             <Route path="/accounts" element={<AccountManagement />} />
             <Route path="/roles" element={<RoleManagement />} />
             <Route path="/categories" element={<CategoryManagement />} />
+            <Route path="/products" element={<ProductManagement />} />
+            <Route path="/suppliers" element={<SupplierManagement />} />
           </Routes>
         </main>
 
