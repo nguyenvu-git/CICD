@@ -67,6 +67,24 @@ const mockUsers = [
   },
 ];
 
+// In-Memory mock data for Categories
+let mockCategories = [
+  { id: 1, category_name: 'Đồ uống', description: 'Nước ngọt, cà phê, trà, sinh tố', created_at: new Date().toISOString() },
+  { id: 2, category_name: 'Món chính', description: 'Cơm, phở, bún, lẩu', created_at: new Date().toISOString() },
+  { id: 3, category_name: 'Tráng miệng', description: 'Bánh ngọt, chè, kem', created_at: new Date().toISOString() },
+];
+
+// In-Memory mock data for Products
+let mockProducts = [
+  { id: 1, category_id: 1, product_name: 'Cà phê sữa đá', price: 29000.00, image_url: '', is_available: 1, created_at: new Date().toISOString(), category_name: 'Đồ uống' },
+  { id: 2, category_id: 1, product_name: 'Trà đào cam sả', price: 35000.00, image_url: '', is_available: 1, created_at: new Date().toISOString(), category_name: 'Đồ uống' },
+  { id: 3, category_id: 2, product_name: 'Bún chả Hà Nội', price: 45000.00, image_url: '', is_available: 1, created_at: new Date().toISOString(), category_name: 'Món chính' },
+  { id: 4, category_id: 2, product_name: 'Cơm tấm sườn bì chả', price: 49000.00, image_url: '', is_available: 1, created_at: new Date().toISOString(), category_name: 'Món chính' },
+  { id: 5, category_id: 3, product_name: 'Bánh flan', price: 15000.00, image_url: '', is_available: 1, created_at: new Date().toISOString(), category_name: 'Tráng miệng' },
+  { id: 6, category_id: 3, product_name: 'Kem dừa', price: 25000.00, image_url: '', is_available: 1, created_at: new Date().toISOString(), category_name: 'Tráng miệng' },
+];
+
+
 // Connection status tracker
 let isDbConnected = false;
 
@@ -779,6 +797,252 @@ app.delete('/api/roles-management/:id', async (req, res) => {
   }
   res.status(503).json({ success: false, error: 'Database không khả dụng.' });
 });
+
+// =========================================================================
+// MODULE CRUD MÓN ĂN / SẢN PHẨM (PRODUCTS)
+// =========================================================================
+
+// GET /api/products - Lấy danh sách sản phẩm (hỗ trợ tìm kiếm, lọc theo category)
+app.get('/api/products', async (req, res) => {
+  const search = req.query.search || '';
+  const categoryId = req.query.category_id || '';
+
+  if (isDbConnected) {
+    try {
+      let queryStr = `
+        SELECT p.id, p.category_id, p.product_name, p.price, p.image_url, p.is_available, p.created_at,
+               c.category_name
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+      `;
+      const params = [];
+      const conditions = [];
+
+      if (search) {
+        conditions.push('(p.product_name LIKE ? OR c.category_name LIKE ?)');
+        const pattern = `%${search}%`;
+        params.push(pattern, pattern);
+      }
+
+      if (categoryId) {
+        conditions.push('p.category_id = ?');
+        params.push(parseInt(categoryId));
+      }
+
+      if (conditions.length > 0) {
+        queryStr += ' WHERE ' + conditions.join(' AND ');
+      }
+
+      queryStr += ' ORDER BY p.id DESC';
+
+      const [rows] = await pool.query(queryStr, params);
+      return res.json(rows);
+    } catch (err) {
+      console.warn('Failed to fetch products from DB:', err.message);
+      isDbConnected = false;
+    }
+  }
+
+  // Fallback
+  let result = [...mockProducts];
+  if (search) {
+    const s = search.toLowerCase();
+    result = result.filter(p =>
+      (p.product_name && p.product_name.toLowerCase().includes(s)) ||
+      (p.category_name && p.category_name.toLowerCase().includes(s))
+    );
+  }
+  if (categoryId) {
+    result = result.filter(p => p.category_id === parseInt(categoryId));
+  }
+  res.json(result);
+});
+
+// GET /api/products/:id - Lấy chi tiết sản phẩm
+app.get('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (isDbConnected) {
+    try {
+      const [rows] = await pool.query(`
+        SELECT p.*, c.category_name 
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.id = ?
+      `, [id]);
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Sản phẩm không tồn tại.' });
+      }
+      return res.json(rows[0]);
+    } catch (err) {
+      console.warn('Failed to fetch product by ID:', err.message);
+      isDbConnected = false;
+    }
+  }
+
+  // Fallback
+  const prod = mockProducts.find(p => p.id === parseInt(id));
+  if (!prod) {
+    return res.status(404).json({ success: false, error: 'Sản phẩm không tồn tại.' });
+  }
+  res.json(prod);
+});
+
+// POST /api/products - Tạo sản phẩm mới
+app.post('/api/products', async (req, res) => {
+  const { category_id, product_name, price, image_url, is_available } = req.body;
+
+  if (!product_name || product_name.trim() === '' || price === undefined) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên sản phẩm và giá tiền.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      const [result] = await pool.query(
+        'INSERT INTO products (category_id, product_name, price, image_url, is_available) VALUES (?, ?, ?, ?, ?)',
+        [category_id ? parseInt(category_id) : null, product_name.trim(), parseFloat(price), image_url || '', is_available !== undefined ? is_available : 1]
+      );
+      const newId = result.insertId;
+
+      const [newProd] = await pool.query(`
+        SELECT p.*, c.category_name 
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.id = ?
+      `, [newId]);
+
+      return res.status(201).json({
+        success: true,
+        message: `Món ăn "${product_name}" đã được thêm thành công!`,
+        data: newProd[0]
+      });
+    } catch (err) {
+      console.error('Failed to create product:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi tạo sản phẩm.' });
+    }
+  }
+
+  // Fallback
+  const cat = mockCategories.find(c => c.id === parseInt(category_id));
+  const newProd = {
+    id: Math.max(...mockProducts.map(p => p.id), 0) + 1,
+    category_id: category_id ? parseInt(category_id) : null,
+    category_name: cat ? cat.category_name : 'Chưa phân loại',
+    product_name: product_name.trim(),
+    price: parseFloat(price),
+    image_url: image_url || '',
+    is_available: is_available !== undefined ? parseInt(is_available) : 1,
+    created_at: new Date().toISOString()
+  };
+  mockProducts.unshift(newProd);
+
+  res.status(201).json({
+    success: true,
+    message: `Món ăn "${product_name}" đã được thêm thành công (Fallback)!`,
+    data: newProd
+  });
+});
+
+// PUT /api/products/:id - Cập nhật sản phẩm
+app.put('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  const { category_id, product_name, price, image_url, is_available } = req.body;
+
+  if (!product_name || product_name.trim() === '' || price === undefined) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên sản phẩm và giá tiền.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM products WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Sản phẩm không tồn tại.' });
+      }
+
+      await pool.query(
+        'UPDATE products SET category_id = ?, product_name = ?, price = ?, image_url = ?, is_available = ? WHERE id = ?',
+        [category_id ? parseInt(category_id) : null, product_name.trim(), parseFloat(price), image_url || '', is_available !== undefined ? is_available : 1, id]
+      );
+
+      const [updated] = await pool.query(`
+        SELECT p.*, c.category_name 
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.id = ?
+      `, [id]);
+
+      return res.json({
+        success: true,
+        message: `Món ăn "${product_name}" đã được cập nhật thành công!`,
+        data: updated[0]
+      });
+    } catch (err) {
+      console.error('Failed to update product:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi cập nhật sản phẩm.' });
+    }
+  }
+
+  // Fallback
+  const prodIdx = mockProducts.findIndex(p => p.id === parseInt(id));
+  if (prodIdx === -1) {
+    return res.status(404).json({ success: false, error: 'Sản phẩm không tồn tại.' });
+  }
+
+  const cat = mockCategories.find(c => c.id === parseInt(category_id));
+  mockProducts[prodIdx] = {
+    ...mockProducts[prodIdx],
+    category_id: category_id ? parseInt(category_id) : null,
+    category_name: cat ? cat.category_name : 'Chưa phân loại',
+    product_name: product_name.trim(),
+    price: parseFloat(price),
+    image_url: image_url || '',
+    is_available: is_available !== undefined ? parseInt(is_available) : 1
+  };
+
+  res.json({
+    success: true,
+    message: `Món ăn "${product_name}" đã được cập nhật thành công (Fallback)!`,
+    data: mockProducts[prodIdx]
+  });
+});
+
+// DELETE /api/products/:id - Xóa sản phẩm
+app.delete('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id, product_name FROM products WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Sản phẩm không tồn tại.' });
+      }
+
+      await pool.query('DELETE FROM products WHERE id = ?', [id]);
+      return res.json({
+        success: true,
+        message: `Món ăn "${existing[0].product_name}" đã được xóa thành công!`
+      });
+    } catch (err) {
+      console.error('Failed to delete product:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi xóa sản phẩm.' });
+    }
+  }
+
+  // Fallback
+  const prodIdx = mockProducts.findIndex(p => p.id === parseInt(id));
+  if (prodIdx === -1) {
+    return res.status(404).json({ success: false, error: 'Sản phẩm không tồn tại.' });
+  }
+
+  const name = mockProducts[prodIdx].product_name;
+  mockProducts = mockProducts.filter(p => p.id !== parseInt(id));
+
+  res.json({
+    success: true,
+    message: `Món ăn "${name}" đã được xóa thành công (Fallback)!`
+  });
+});
+
 
 // Start Express Server
 app.listen(PORT, () => {

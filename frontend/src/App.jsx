@@ -6,6 +6,7 @@ import AxiosDemo from "./pages/AxiosDemo";
 import FormDemo from "./pages/FormDemo";
 import AccountManagement from "./pages/AccountManagement";
 import RoleManagement from "./pages/RoleManagement";
+import ProductManagement from "./pages/ProductManagement";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/form" element={<FormDemo />} />
             <Route path="/accounts" element={<AccountManagement />} />
             <Route path="/roles" element={<RoleManagement />} />
+            <Route path="/products" element={<ProductManagement />} />
           </Routes>
         </main>
 
