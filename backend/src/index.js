@@ -67,6 +67,13 @@ const mockUsers = [
   },
 ];
 
+// In-Memory mock data for Suppliers
+let mockSuppliers = [
+  { id: 1, supplier_name: 'Nhà cung cấp Rau Sạch', contact_name: 'Nguyen Van Rau', phone: '0908888777', address: 'Đà Lạt, Lâm Đồng', created_at: new Date().toISOString() },
+  { id: 2, supplier_name: 'Công ty Thực phẩm Fresh Food', contact_name: 'Tran Thi Thit', phone: '0909999888', address: 'Quận 7, TP. HCM', created_at: new Date().toISOString() },
+];
+
+
 // Connection status tracker
 let isDbConnected = false;
 
@@ -779,6 +786,210 @@ app.delete('/api/roles-management/:id', async (req, res) => {
   }
   res.status(503).json({ success: false, error: 'Database không khả dụng.' });
 });
+
+// =========================================================================
+// MODULE CRUD NHÀ CUNG CẤP (SUPPLIERS)
+// =========================================================================
+
+// GET /api/suppliers - Lấy danh sách nhà cung cấp (hỗ trợ tìm kiếm)
+app.get('/api/suppliers', async (req, res) => {
+  const search = req.query.search || '';
+
+  if (isDbConnected) {
+    try {
+      let queryStr = 'SELECT id, supplier_name, contact_name, phone, address, created_at FROM suppliers';
+      const params = [];
+      if (search) {
+        queryStr += ' WHERE supplier_name LIKE ? OR contact_name LIKE ? OR phone LIKE ? OR address LIKE ?';
+        const pattern = `%${search}%`;
+        params.push(pattern, pattern, pattern, pattern);
+      }
+      queryStr += ' ORDER BY id DESC';
+
+      const [rows] = await pool.query(queryStr, params);
+      return res.json(rows);
+    } catch (err) {
+      console.warn('Failed to fetch suppliers from DB:', err.message);
+      isDbConnected = false;
+    }
+  }
+
+  // Fallback
+  let result = [...mockSuppliers];
+  if (search) {
+    const s = search.toLowerCase();
+    result = result.filter(sup =>
+      (sup.supplier_name && sup.supplier_name.toLowerCase().includes(s)) ||
+      (sup.contact_name && sup.contact_name.toLowerCase().includes(s)) ||
+      (sup.phone && sup.phone.includes(s)) ||
+      (sup.address && sup.address.toLowerCase().includes(s))
+    );
+  }
+  res.json(result);
+});
+
+// GET /api/suppliers/:id - Lấy chi tiết nhà cung cấp
+app.get('/api/suppliers/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (isDbConnected) {
+    try {
+      const [rows] = await pool.query('SELECT * FROM suppliers WHERE id = ?', [id]);
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+      }
+      return res.json(rows[0]);
+    } catch (err) {
+      console.warn('Failed to fetch supplier by ID:', err.message);
+      isDbConnected = false;
+    }
+  }
+
+  // Fallback
+  const sup = mockSuppliers.find(s => s.id === parseInt(id));
+  if (!sup) {
+    return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+  }
+  res.json(sup);
+});
+
+// POST /api/suppliers - Tạo nhà cung cấp mới
+app.post('/api/suppliers', async (req, res) => {
+  const { supplier_name, contact_name, phone, address } = req.body;
+
+  if (!supplier_name || supplier_name.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Tên nhà cung cấp không được để trống.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      const [result] = await pool.query(
+        'INSERT INTO suppliers (supplier_name, contact_name, phone, address) VALUES (?, ?, ?, ?)',
+        [supplier_name.trim(), contact_name || null, phone || null, address || null]
+      );
+      const newId = result.insertId;
+
+      const [newSup] = await pool.query('SELECT * FROM suppliers WHERE id = ?', [newId]);
+      return res.status(201).json({
+        success: true,
+        message: `Nhà cung cấp "${supplier_name}" đã được thêm thành công!`,
+        data: newSup[0]
+      });
+    } catch (err) {
+      console.error('Failed to create supplier:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi tạo nhà cung cấp.' });
+    }
+  }
+
+  // Fallback
+  const newSup = {
+    id: Math.max(...mockSuppliers.map(s => s.id), 0) + 1,
+    supplier_name: supplier_name.trim(),
+    contact_name: contact_name || '',
+    phone: phone || '',
+    address: address || '',
+    created_at: new Date().toISOString()
+  };
+  mockSuppliers.unshift(newSup);
+
+  res.status(201).json({
+    success: true,
+    message: `Nhà cung cấp "${supplier_name}" đã được thêm thành công (Fallback)!`,
+    data: newSup
+  });
+});
+
+// PUT /api/suppliers/:id - Cập nhật nhà cung cấp
+app.put('/api/suppliers/:id', async (req, res) => {
+  const { id } = req.params;
+  const { supplier_name, contact_name, phone, address } = req.body;
+
+  if (!supplier_name || supplier_name.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Tên nhà cung cấp không được để trống.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM suppliers WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+      }
+
+      await pool.query(
+        'UPDATE suppliers SET supplier_name = ?, contact_name = ?, phone = ?, address = ? WHERE id = ?',
+        [supplier_name.trim(), contact_name || null, phone || null, address || null, id]
+      );
+
+      const [updated] = await pool.query('SELECT * FROM suppliers WHERE id = ?', [id]);
+      return res.json({
+        success: true,
+        message: `Nhà cung cấp "${supplier_name}" đã được cập nhật thành công!`,
+        data: updated[0]
+      });
+    } catch (err) {
+      console.error('Failed to update supplier:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi cập nhật nhà cung cấp.' });
+    }
+  }
+
+  // Fallback
+  const supIdx = mockSuppliers.findIndex(s => s.id === parseInt(id));
+  if (supIdx === -1) {
+    return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+  }
+
+  mockSuppliers[supIdx] = {
+    ...mockSuppliers[supIdx],
+    supplier_name: supplier_name.trim(),
+    contact_name: contact_name || '',
+    phone: phone || '',
+    address: address || ''
+  };
+
+  res.json({
+    success: true,
+    message: `Nhà cung cấp "${supplier_name}" đã được cập nhật thành công (Fallback)!`,
+    data: mockSuppliers[supIdx]
+  });
+});
+
+// DELETE /api/suppliers/:id - Xóa nhà cung cấp
+app.delete('/api/suppliers/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id, supplier_name FROM suppliers WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+      }
+
+      await pool.query('DELETE FROM suppliers WHERE id = ?', [id]);
+      return res.json({
+        success: true,
+        message: `Nhà cung cấp "${existing[0].supplier_name}" đã được xóa thành công!`
+      });
+    } catch (err) {
+      console.error('Failed to delete supplier:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi xóa nhà cung cấp. Có thể dữ liệu đang liên kết ở phiếu nhập kho.' });
+    }
+  }
+
+  // Fallback
+  const supIdx = mockSuppliers.findIndex(s => s.id === parseInt(id));
+  if (supIdx === -1) {
+    return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+  }
+
+  const name = mockSuppliers[supIdx].supplier_name;
+  mockSuppliers = mockSuppliers.filter(s => s.id !== parseInt(id));
+
+  res.json({
+    success: true,
+    message: `Nhà cung cấp "${name}" đã được xóa thành công (Fallback)!`
+  });
+});
+
 
 // Start Express Server
 app.listen(PORT, () => {
