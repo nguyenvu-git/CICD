@@ -497,6 +497,289 @@ app.delete('/api/accounts/:id', async (req, res) => {
   res.status(503).json({ success: false, error: 'Database không khả dụng.' });
 });
 
+// =========================================================================
+// MODULE CRUD VAI TRÒ & PHÂN QUYỀN (ROLES MANAGEMENT)
+// =========================================================================
+
+// Định nghĩa ma trận phân quyền mặc định cho mỗi role
+const DEFAULT_PERMISSIONS = {
+  'Admin': {
+    quan_ly_tai_khoan: true,
+    quan_ly_vai_tro: true,
+    quan_ly_mon_an: true,
+    quan_ly_ban_an: true,
+    quan_ly_don_hang: true,
+    quan_ly_hoa_don: true,
+    quan_ly_kho: true,
+    quan_ly_nha_cung_cap: true,
+    quan_ly_khach_hang: true,
+    quan_ly_khuyen_mai: true,
+    xem_bao_cao: true,
+    quan_ly_phan_hoi: true,
+  },
+  'Thu ngân': {
+    quan_ly_tai_khoan: false,
+    quan_ly_vai_tro: false,
+    quan_ly_mon_an: false,
+    quan_ly_ban_an: true,
+    quan_ly_don_hang: true,
+    quan_ly_hoa_don: true,
+    quan_ly_kho: false,
+    quan_ly_nha_cung_cap: false,
+    quan_ly_khach_hang: true,
+    quan_ly_khuyen_mai: true,
+    xem_bao_cao: false,
+    quan_ly_phan_hoi: false,
+  },
+  'Đầu bếp': {
+    quan_ly_tai_khoan: false,
+    quan_ly_vai_tro: false,
+    quan_ly_mon_an: true,
+    quan_ly_ban_an: false,
+    quan_ly_don_hang: true,
+    quan_ly_hoa_don: false,
+    quan_ly_kho: true,
+    quan_ly_nha_cung_cap: false,
+    quan_ly_khach_hang: false,
+    quan_ly_khuyen_mai: false,
+    xem_bao_cao: false,
+    quan_ly_phan_hoi: false,
+  },
+  'Phục vụ': {
+    quan_ly_tai_khoan: false,
+    quan_ly_vai_tro: false,
+    quan_ly_mon_an: false,
+    quan_ly_ban_an: true,
+    quan_ly_don_hang: true,
+    quan_ly_hoa_don: false,
+    quan_ly_kho: false,
+    quan_ly_nha_cung_cap: false,
+    quan_ly_khach_hang: false,
+    quan_ly_khuyen_mai: false,
+    xem_bao_cao: false,
+    quan_ly_phan_hoi: true,
+  },
+};
+
+const getDefaultPermissions = (roleName) => {
+  return DEFAULT_PERMISSIONS[roleName] || {
+    quan_ly_tai_khoan: false, quan_ly_vai_tro: false, quan_ly_mon_an: false,
+    quan_ly_ban_an: false, quan_ly_don_hang: false, quan_ly_hoa_don: false,
+    quan_ly_kho: false, quan_ly_nha_cung_cap: false, quan_ly_khach_hang: false,
+    quan_ly_khuyen_mai: false, xem_bao_cao: false, quan_ly_phan_hoi: false,
+  };
+};
+
+// In-memory permissions store (since DB doesn't have a permissions table)
+const rolePermissionsStore = {};
+
+// GET /api/roles-management - Lấy danh sách vai trò kèm số lượng user
+app.get('/api/roles-management', async (req, res) => {
+  if (isDbConnected) {
+    try {
+      const [rows] = await pool.query(`
+        SELECT r.id, r.role_name, r.description, r.created_at,
+               COUNT(u.id) AS user_count
+        FROM roles r
+        LEFT JOIN users u ON r.id = u.role_id
+        GROUP BY r.id, r.role_name, r.description, r.created_at
+        ORDER BY r.id ASC
+      `);
+      // Gắn thông tin quyền từ store
+      const rolesWithPerms = rows.map(role => ({
+        ...role,
+        permissions: rolePermissionsStore[role.id] || getDefaultPermissions(role.role_name),
+      }));
+      return res.json(rolesWithPerms);
+    } catch (err) {
+      console.warn('Failed to fetch roles-management from DB:', err.message);
+      isDbConnected = false;
+    }
+  }
+  // Fallback
+  const fallback = [
+    { id: 1, role_name: 'Admin', description: 'Administrator with full system privileges', created_at: '2026-01-01', user_count: 1 },
+    { id: 2, role_name: 'Thu ngân', description: 'Cashier in charge of invoicing and payments', created_at: '2026-01-01', user_count: 1 },
+    { id: 3, role_name: 'Đầu bếp', description: 'Chef handling orders in the kitchen', created_at: '2026-01-01', user_count: 1 },
+    { id: 4, role_name: 'Phục vụ', description: 'Waiter serving tables and taking orders', created_at: '2026-01-01', user_count: 1 },
+  ];
+  res.json(fallback.map(r => ({ ...r, permissions: getDefaultPermissions(r.role_name) })));
+});
+
+// GET /api/roles-management/:id - Lấy chi tiết 1 vai trò
+app.get('/api/roles-management/:id', async (req, res) => {
+  const { id } = req.params;
+  if (isDbConnected) {
+    try {
+      const [rows] = await pool.query(`
+        SELECT r.id, r.role_name, r.description, r.created_at,
+               COUNT(u.id) AS user_count
+        FROM roles r
+        LEFT JOIN users u ON r.id = u.role_id
+        WHERE r.id = ?
+        GROUP BY r.id, r.role_name, r.description, r.created_at
+      `, [id]);
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Vai trò không tồn tại.' });
+      }
+      const role = {
+        ...rows[0],
+        permissions: rolePermissionsStore[rows[0].id] || getDefaultPermissions(rows[0].role_name),
+      };
+      return res.json(role);
+    } catch (err) {
+      console.warn('Failed to fetch role by ID:', err.message);
+      isDbConnected = false;
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+// POST /api/roles-management - Tạo vai trò mới
+app.post('/api/roles-management', async (req, res) => {
+  const { role_name, description, permissions } = req.body;
+
+  if (!role_name || role_name.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên vai trò.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      // Check unique role_name
+      const [existing] = await pool.query('SELECT id FROM roles WHERE role_name = ?', [role_name.trim()]);
+      if (existing.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: `Vai trò "${role_name}" đã tồn tại. Vui lòng chọn tên khác.`,
+        });
+      }
+
+      const [result] = await pool.query(
+        'INSERT INTO roles (role_name, description) VALUES (?, ?)',
+        [role_name.trim(), description || null]
+      );
+      const newId = result.insertId;
+
+      // Store permissions
+      rolePermissionsStore[newId] = permissions || getDefaultPermissions(role_name.trim());
+
+      console.log(`[Database] Created new role: ${role_name} (ID: ${newId})`);
+
+      const [newRole] = await pool.query(`
+        SELECT r.id, r.role_name, r.description, r.created_at, 0 AS user_count
+        FROM roles r WHERE r.id = ?
+      `, [newId]);
+
+      return res.status(201).json({
+        success: true,
+        message: `Vai trò "${role_name}" đã được tạo thành công!`,
+        data: { ...newRole[0], permissions: rolePermissionsStore[newId] },
+      });
+    } catch (err) {
+      console.error('Failed to create role:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi tạo vai trò.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng. Không thể tạo vai trò.' });
+});
+
+// PUT /api/roles-management/:id - Cập nhật vai trò
+app.put('/api/roles-management/:id', async (req, res) => {
+  const { id } = req.params;
+  const { role_name, description, permissions } = req.body;
+
+  if (!role_name || role_name.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên vai trò.' });
+  }
+
+  if (isDbConnected) {
+    try {
+      // Check exists
+      const [existing] = await pool.query('SELECT id, role_name FROM roles WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Vai trò không tồn tại.' });
+      }
+
+      // Check unique name (exclude self)
+      const [duplicate] = await pool.query('SELECT id FROM roles WHERE role_name = ? AND id != ?', [role_name.trim(), id]);
+      if (duplicate.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: `Tên vai trò "${role_name}" đã được sử dụng bởi vai trò khác.`,
+        });
+      }
+
+      await pool.query('UPDATE roles SET role_name = ?, description = ? WHERE id = ?', [role_name.trim(), description || null, id]);
+
+      // Update permissions in store
+      if (permissions) {
+        rolePermissionsStore[parseInt(id)] = permissions;
+      }
+
+      console.log(`[Database] Updated role ID: ${id}`);
+
+      const [updatedRole] = await pool.query(`
+        SELECT r.id, r.role_name, r.description, r.created_at,
+               COUNT(u.id) AS user_count
+        FROM roles r
+        LEFT JOIN users u ON r.id = u.role_id
+        WHERE r.id = ?
+        GROUP BY r.id, r.role_name, r.description, r.created_at
+      `, [id]);
+
+      return res.json({
+        success: true,
+        message: `Vai trò "${role_name}" đã được cập nhật!`,
+        data: { ...updatedRole[0], permissions: rolePermissionsStore[parseInt(id)] || getDefaultPermissions(role_name) },
+      });
+    } catch (err) {
+      console.error('Failed to update role:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi cập nhật vai trò.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+// DELETE /api/roles-management/:id - Xóa vai trò
+app.delete('/api/roles-management/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (isDbConnected) {
+    try {
+      // Check exists
+      const [existing] = await pool.query('SELECT id, role_name FROM roles WHERE id = ?', [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ success: false, error: 'Vai trò không tồn tại.' });
+      }
+
+      const roleName = existing[0].role_name;
+
+      // Check if role is in use
+      const [usersWithRole] = await pool.query('SELECT COUNT(*) AS cnt FROM users WHERE role_id = ?', [id]);
+      if (usersWithRole[0].cnt > 0) {
+        return res.status(409).json({
+          success: false,
+          error: `Không thể xóa vai trò "${roleName}" vì đang có ${usersWithRole[0].cnt} tài khoản sử dụng.`,
+        });
+      }
+
+      await pool.query('DELETE FROM roles WHERE id = ?', [id]);
+      delete rolePermissionsStore[parseInt(id)];
+
+      console.log(`[Database] Deleted role: ${roleName} (ID: ${id})`);
+
+      return res.json({
+        success: true,
+        message: `Vai trò "${roleName}" đã được xóa thành công!`,
+      });
+    } catch (err) {
+      console.error('Failed to delete role:', err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi xóa vai trò.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
 // Start Express Server
 app.listen(PORT, () => {
   console.log(`===========================================`);

@@ -5,6 +5,7 @@ import Home from "./pages/Home";
 import AxiosDemo from "./pages/AxiosDemo";
 import FormDemo from "./pages/FormDemo";
 import AccountManagement from "./pages/AccountManagement";
+import RoleManagement from "./pages/RoleManagement";
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="/axios" element={<AxiosDemo />} />
             <Route path="/form" element={<FormDemo />} />
             <Route path="/accounts" element={<AccountManagement />} />
+            <Route path="/roles" element={<RoleManagement />} />
           </Routes>
         </main>
 

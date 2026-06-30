@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Database, FileText, Cpu, Users } from 'lucide-react';
+import { Home, Database, FileText, Cpu, Users, Shield } from 'lucide-react';
 
 export default function Navbar() {
   return (
@@ -67,6 +67,19 @@ export default function Navbar() {
             >
               <Users className="h-4 w-4" />
               <span>Tài khoản</span>
+            </NavLink>
+            <NavLink
+              to="/roles"
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? 'bg-slate-850 text-indigo-400 border border-slate-700 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100 border border-transparent'
+                }`
+              }
+            >
+              <Shield className="h-4 w-4" />
+              <span>Vai trò & Quyền</span>
             </NavLink>
           </div>
         </div>
