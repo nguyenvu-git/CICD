@@ -18,8 +18,9 @@ export default function FormDemo() {
 
   const onSubmit = async (data) => {
     setSubmitting(true);
+    const API_BASE = `http://${window.location.hostname}:5000/api`;
     try {
-      const response = await axios.post('http://localhost:5000/api/contact', data);
+      const response = await axios.post(`${API_BASE}/contact`, data);
       setSubmittedData(response.data.receivedData);
     } catch (err) {
       console.warn('Backend server not running. Falling back to client-side simulation.', err);

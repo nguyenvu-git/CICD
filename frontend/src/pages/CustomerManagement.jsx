@@ -8,7 +8,8 @@ export default function CustomerManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const res = await fetch('http://localhost:5000/api/customers', {
+    const API_BASE = `http://${window.location.hostname}:5000/api`;
+    const res = await fetch(`${API_BASE}/customers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData)

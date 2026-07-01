@@ -7,7 +7,7 @@ import {
   ChefHat, CreditCard, ConciergeBell, Loader2
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = `http://${window.location.hostname}:5000/api`;
 
 // Role badge config
 const ROLE_STYLES = {

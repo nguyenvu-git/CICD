@@ -15,13 +15,13 @@ app.use(cors());
 // Parse JSON request bodies
 app.use(express.json());
 
-// Create the database connection pool using promises
+// Create the database connection pool using environment variables or fallbacks
 const pool = mysql.createPool({
-  host: 'database',           // Phải để là 'database' (tên service trong docker-compose)
-  port: 3306,
-  user: 'root',               // User mặc định của MySQL image
-  password: 'root_password_cua_ban', // Phải khớp với trong docker-compose.yml
-  database: 'restaurant_management',
+  host: process.env.DB_HOST || 'database',
+  port: parseInt(process.env.DB_PORT || '3306'),
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || 'root_password_cua_ban',
+  database: process.env.DB_NAME || 'restaurant_management',
   waitForConnections: true,
   connectionLimit: 5,
   queueLimit: 0,

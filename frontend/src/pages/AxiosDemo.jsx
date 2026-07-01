@@ -16,7 +16,8 @@ export default function AxiosDemo() {
     try {
       // Attempt to fetch from local Node.js Express backend first
       try {
-        const response = await axios.get('http://localhost:5000/api/users');
+        const API_BASE = `http://${window.location.hostname}:5000/api`;
+        const response = await axios.get(`${API_BASE}/users`);
         setUsers(response.data);
         setDataSource('Local Express Backend');
       } catch (localErr) {

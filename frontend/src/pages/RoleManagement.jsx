@@ -11,7 +11,7 @@ import {
   Truck, Check
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = `http://${window.location.hostname}:5000/api`;
 
 // =========================================================================
 // PERMISSION MATRIX CONFIG

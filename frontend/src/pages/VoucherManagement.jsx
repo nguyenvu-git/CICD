@@ -8,19 +8,21 @@ export default function VoucherManagement() {
   });
   const [message, setMessage] = useState('');
 
+  const API_BASE = `http://${window.location.hostname}:5000/api`;
+
   // Lấy danh sách Voucher khi load trang
   useEffect(() => {
-    fetch('http://localhost:5000/api/vouchers')
+    fetch(`${API_BASE}/vouchers`)
       .then(res => res.json())
       .then(data => {
         if (data.success) setVouchers(data.data);
       })
       .catch(err => console.error(err));
-  }, []);
+  }, [API_BASE]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const res = await fetch('http://localhost:5000/api/vouchers', {
+    const res = await fetch(`${API_BASE}/vouchers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData)

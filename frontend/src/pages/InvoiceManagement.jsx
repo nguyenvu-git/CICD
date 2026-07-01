@@ -20,7 +20,8 @@ export default function InvoiceManagement() {
       items: demoCart
     };
 
-    const res = await fetch('http://localhost:5000/api/invoices', {
+    const API_BASE = `http://${window.location.hostname}:5000/api`;
+    const res = await fetch(`${API_BASE}/invoices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
