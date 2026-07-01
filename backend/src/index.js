@@ -69,28 +69,45 @@ const mockUsers = [
 
 // Connection status tracker
 let isDbConnected = false;
+let isReconnecting = false;
 
-// Test connection on startup
+// Test connection on startup and handle automatic retries
 const checkDbConnection = async () => {
+  if (isDbConnected) return;
   try {
     const connection = await pool.getConnection();
     isDbConnected = true;
+    isReconnecting = false;
     console.log('==================================================');
     console.log(' Successfully connected to Restaurant MySQL DB! ');
     console.log('==================================================');
     connection.release();
   } catch (err) {
     isDbConnected = false;
-    console.log('==================================================');
-    console.log(' WARNING: Could not connect to MySQL database.');
-    console.log(` Reason: ${err.message}`);
-    console.log(' Backend running in RESILIENT FALLBACK mode (In-Memory).');
-    console.log(' Start Docker Desktop and run: docker compose up -d');
-    console.log('==================================================');
+    console.log(`[DB Connection Attempt Failed] ${err.message}. Retrying in 5 seconds...`);
+    if (!isReconnecting) {
+      isReconnecting = true;
+    }
+    setTimeout(checkDbConnection, 5000);
   }
 };
 
 checkDbConnection();
+
+// Handle DB errors gracefully without permanently disabling the DB unless it's a connection issue
+const handleDbError = (err) => {
+  const connectionErrorCodes = [
+    'PROTOCOL_CONNECTION_LOST',
+    'ECONNREFUSED',
+    'ETIMEDOUT',
+    'ENOTFOUND',
+    'ER_ACCESS_DENIED_ERROR',
+  ];
+  if (connectionErrorCodes.includes(err.code) || (err.message && err.message.toLowerCase().includes('connect'))) {
+    isDbConnected = false;
+    checkDbConnection();
+  }
+};
 
 // Custom request logging middleware
 app.use((req, res, next) => {
@@ -137,7 +154,7 @@ app.get('/api/users', async (req, res) => {
       return res.json(formattedUsers);
     } catch (err) {
       console.warn('Database query failed mid-runtime, falling back to mock users.', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
 
@@ -185,7 +202,7 @@ app.post('/api/contact', async (req, res) => {
       });
     } catch (err) {
       console.warn('Database save failed mid-runtime, processing in fallback mode.', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
 
@@ -225,7 +242,7 @@ app.get('/api/roles', async (req, res) => {
       return res.json(rows);
     } catch (err) {
       console.warn('Failed to fetch roles from DB:', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
   // Fallback
@@ -263,7 +280,7 @@ app.get('/api/accounts', async (req, res) => {
       return res.json(rows);
     } catch (err) {
       console.warn('Failed to fetch accounts from DB:', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
 
@@ -307,7 +324,7 @@ app.get('/api/accounts/:id', async (req, res) => {
       return res.json(rows[0]);
     } catch (err) {
       console.warn('Failed to fetch account by ID:', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
   res.status(503).json({ success: false, error: 'Database không khả dụng.' });
@@ -593,7 +610,7 @@ app.get('/api/roles-management', async (req, res) => {
       return res.json(rolesWithPerms);
     } catch (err) {
       console.warn('Failed to fetch roles-management from DB:', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
   // Fallback
@@ -629,7 +646,7 @@ app.get('/api/roles-management/:id', async (req, res) => {
       return res.json(role);
     } catch (err) {
       console.warn('Failed to fetch role by ID:', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
   res.status(503).json({ success: false, error: 'Database không khả dụng.' });
@@ -804,7 +821,7 @@ app.get('/api/vouchers', async (req, res) => {
       return res.json({ success: true, data: rows });
     } catch (err) {
       console.warn('Failed to fetch vouchers from DB:', err.message);
-      isDbConnected = false;
+      handleDbError(err);
     }
   }
   res.json({ success: true, data: mockVouchers });
