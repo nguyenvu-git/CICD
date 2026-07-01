@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  # 1. Dịch vụ Cơ sở dữ liệu (MySQL)
+  database:
+    image: mysql:8.0
+    container_name: qldim_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_cua_ban
+      MYSQL_DATABASE: restaurant_management
+    ports:
+      - "3306:3306"
+    volumes:
+      - qldim_db_data:/var/lib/mysql
+      - ./database:/docker-entrypoint-initdb.d
+
+  # 2. Dịch vụ Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qldim_backend
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      DB_HOST: database
+      DB_USER: root
+      DB_PASSWORD: root_password_cua_ban
+      DB_NAME: restaurant_management
+    depends_on:
+      - database
+
+  # 3. Dịch vụ Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qldim_frontend
+    restart: always
+    ports:
+      - "3000:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  qldim_db_data:

@@ -1,0 +1,21 @@
+name: Tự động deploy lên Server Ubuntu khi có Code mới
+
+on:
+  push:
+    branches: ["main"] # Kích hoạt khi có người push code lên nhánh main
+
+jobs:
+  deploy:
+    runs-on: self-hosted # Ép kịch bản này chạy trên con Ubuntu (Runner) của bạn
+
+    steps:
+      # Bước 1: Kéo code mới nhất từ GitHub về thư mục làm việc của Runner trên Ubuntu
+      - name: Checkout mã nguồn
+        uses: actions/checkout@v4
+
+      # Bước 2: Ra lệnh cho Docker dập container cũ, build và bật container mới lên
+      - name: Khởi chạy Docker Compose
+
+        run: |
+          docker compose down --remove-orphans || true
+          docker compose up -d --build
