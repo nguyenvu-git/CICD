@@ -943,7 +943,281 @@ app.post('/api/invoices', async (req, res) => {
     res.status(500).json({ success: false, error: 'Lỗi hệ thống khi thanh toán.' });
   }
 });
+
+// =========================================================================
+// MODULE CRUD DANH MỤC MÓN ĂN (CATEGORIES)
+// =========================================================================
+app.get('/api/categories', async (req, res) => {
+  const search = req.query.search || '';
+  if (isDbConnected) {
+    try {
+      let queryStr = 'SELECT c.*, COUNT(p.id) AS product_count FROM categories c LEFT JOIN products p ON c.id = p.category_id';
+      const params = [];
+      if (search) {
+        queryStr += ' WHERE c.category_name LIKE ?';
+        params.push(`%${search}%`);
+      }
+      queryStr += ' GROUP BY c.id ORDER BY c.id ASC';
+      const [rows] = await pool.query(queryStr, params);
+      return res.json(rows);
+    } catch (err) {
+      console.warn('Failed to fetch categories:', err.message);
+      handleDbError(err);
+    }
+  }
+  res.json([
+    { id: 1, category_name: 'Đồ uống', description: 'Nước ngọt, cà phê, trà, sinh tố', product_count: 2 },
+    { id: 2, category_name: 'Món chính', description: 'Cơm, phở, bún, lẩu', product_count: 2 },
+    { id: 3, category_name: 'Tráng miệng', description: 'Bánh ngọt, chè, kem', product_count: 2 },
+  ]);
+});
+
+app.post('/api/categories', async (req, res) => {
+  const { category_name, description } = req.body;
+  if (!category_name || !category_name.trim()) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên danh mục.' });
+  }
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM categories WHERE category_name = ?', [category_name.trim()]);
+      if (existing.length > 0) return res.status(409).json({ success: false, error: `Danh mục "${category_name}" đã tồn tại.` });
+      const [result] = await pool.query('INSERT INTO categories (category_name, description) VALUES (?, ?)', [category_name.trim(), description || null]);
+      const [newRow] = await pool.query('SELECT c.*, 0 AS product_count FROM categories c WHERE c.id = ?', [result.insertId]);
+      return res.status(201).json({ success: true, message: `Danh mục "${category_name}" đã được tạo!`, data: newRow[0] });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi tạo danh mục.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+app.put('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  const { category_name, description } = req.body;
+  if (!category_name || !category_name.trim()) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên danh mục.' });
+  }
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM categories WHERE id = ?', [id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+      const [dup] = await pool.query('SELECT id FROM categories WHERE category_name = ? AND id != ?', [category_name.trim(), id]);
+      if (dup.length > 0) return res.status(409).json({ success: false, error: `Tên danh mục "${category_name}" đã được sử dụng.` });
+      await pool.query('UPDATE categories SET category_name = ?, description = ? WHERE id = ?', [category_name.trim(), description || null, id]);
+      const [updated] = await pool.query('SELECT c.*, COUNT(p.id) AS product_count FROM categories c LEFT JOIN products p ON c.id = p.category_id WHERE c.id = ? GROUP BY c.id', [id]);
+      return res.json({ success: true, message: `Danh mục "${category_name}" đã được cập nhật!`, data: updated[0] });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi cập nhật danh mục.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id, category_name FROM categories WHERE id = ?', [id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, error: 'Danh mục không tồn tại.' });
+      // Set category_id to NULL for related products instead of blocking
+      await pool.query('UPDATE products SET category_id = NULL WHERE category_id = ?', [id]);
+      await pool.query('DELETE FROM categories WHERE id = ?', [id]);
+      return res.json({ success: true, message: `Danh mục "${existing[0].category_name}" đã được xóa!` });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi xóa danh mục.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+// =========================================================================
+// MODULE CRUD MÓN ĂN / SẢN PHẨM (PRODUCTS)
+// =========================================================================
+app.get('/api/products', async (req, res) => {
+  const search = req.query.search || '';
+  const category_id = req.query.category_id || '';
+  if (isDbConnected) {
+    try {
+      let queryStr = `SELECT p.*, c.category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE 1=1`;
+      const params = [];
+      if (search) {
+        queryStr += ' AND p.product_name LIKE ?';
+        params.push(`%${search}%`);
+      }
+      if (category_id) {
+        queryStr += ' AND p.category_id = ?';
+        params.push(category_id);
+      }
+      queryStr += ' ORDER BY p.id DESC';
+      const [rows] = await pool.query(queryStr, params);
+      return res.json(rows);
+    } catch (err) {
+      console.warn('Failed to fetch products:', err.message);
+      handleDbError(err);
+    }
+  }
+  res.json([
+    { id: 1, product_name: 'Cà phê sữa đá', price: 29000, category_id: 1, category_name: 'Đồ uống', is_available: 1, image_url: '' },
+    { id: 2, product_name: 'Trà đào cam sả', price: 35000, category_id: 1, category_name: 'Đồ uống', is_available: 1, image_url: '' },
+    { id: 3, product_name: 'Bún chả Hà Nội', price: 45000, category_id: 2, category_name: 'Món chính', is_available: 1, image_url: '' },
+    { id: 4, product_name: 'Cơm tấm sườn bì chả', price: 49000, category_id: 2, category_name: 'Món chính', is_available: 1, image_url: '' },
+    { id: 5, product_name: 'Bánh flan', price: 15000, category_id: 3, category_name: 'Tráng miệng', is_available: 1, image_url: '' },
+    { id: 6, product_name: 'Kem dừa', price: 25000, category_id: 3, category_name: 'Tráng miệng', is_available: 1, image_url: '' },
+  ]);
+});
+
+app.post('/api/products', async (req, res) => {
+  const { product_name, category_id, price, image_url, is_available } = req.body;
+  if (!product_name || !price) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên món và giá bán.' });
+  }
+  if (isDbConnected) {
+    try {
+      const [result] = await pool.query(
+        'INSERT INTO products (product_name, category_id, price, image_url, is_available) VALUES (?, ?, ?, ?, ?)',
+        [product_name.trim(), category_id || null, price, image_url || null, is_available !== undefined ? is_available : 1]
+      );
+      const [newRow] = await pool.query('SELECT p.*, c.category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ?', [result.insertId]);
+      return res.status(201).json({ success: true, message: `Món ăn "${product_name}" đã được thêm!`, data: newRow[0] });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi thêm món ăn.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+app.put('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  const { product_name, category_id, price, image_url, is_available } = req.body;
+  if (!product_name || !price) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên món và giá bán.' });
+  }
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM products WHERE id = ?', [id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, error: 'Món ăn không tồn tại.' });
+      await pool.query(
+        'UPDATE products SET product_name = ?, category_id = ?, price = ?, image_url = ?, is_available = ? WHERE id = ?',
+        [product_name.trim(), category_id || null, price, image_url || null, is_available !== undefined ? is_available : 1, id]
+      );
+      const [updated] = await pool.query('SELECT p.*, c.category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ?', [id]);
+      return res.json({ success: true, message: `Món ăn "${product_name}" đã được cập nhật!`, data: updated[0] });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi cập nhật món ăn.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+app.delete('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id, product_name FROM products WHERE id = ?', [id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, error: 'Món ăn không tồn tại.' });
+      await pool.query('DELETE FROM products WHERE id = ?', [id]);
+      return res.json({ success: true, message: `Món ăn "${existing[0].product_name}" đã được xóa!` });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi xóa món ăn. Có thể món đang liên kết với đơn hàng.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+// =========================================================================
+// MODULE CRUD NHÀ CUNG CẤP (SUPPLIERS)
+// =========================================================================
+app.get('/api/suppliers', async (req, res) => {
+  const search = req.query.search || '';
+  if (isDbConnected) {
+    try {
+      let queryStr = 'SELECT * FROM suppliers WHERE 1=1';
+      const params = [];
+      if (search) {
+        queryStr += ' AND (supplier_name LIKE ? OR contact_name LIKE ? OR phone LIKE ?)';
+        const s = `%${search}%`;
+        params.push(s, s, s);
+      }
+      queryStr += ' ORDER BY id DESC';
+      const [rows] = await pool.query(queryStr, params);
+      return res.json(rows);
+    } catch (err) {
+      console.warn('Failed to fetch suppliers:', err.message);
+      handleDbError(err);
+    }
+  }
+  res.json([]);
+});
+
+app.post('/api/suppliers', async (req, res) => {
+  const { supplier_name, contact_name, phone, address } = req.body;
+  if (!supplier_name || !supplier_name.trim()) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên nhà cung cấp.' });
+  }
+  if (isDbConnected) {
+    try {
+      const [result] = await pool.query(
+        'INSERT INTO suppliers (supplier_name, contact_name, phone, address) VALUES (?, ?, ?, ?)',
+        [supplier_name.trim(), contact_name || null, phone || null, address || null]
+      );
+      const [newRow] = await pool.query('SELECT * FROM suppliers WHERE id = ?', [result.insertId]);
+      return res.status(201).json({ success: true, message: `Nhà cung cấp "${supplier_name}" đã được thêm!`, data: newRow[0] });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi thêm nhà cung cấp.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+app.put('/api/suppliers/:id', async (req, res) => {
+  const { id } = req.params;
+  const { supplier_name, contact_name, phone, address } = req.body;
+  if (!supplier_name || !supplier_name.trim()) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập tên nhà cung cấp.' });
+  }
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id FROM suppliers WHERE id = ?', [id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+      await pool.query(
+        'UPDATE suppliers SET supplier_name = ?, contact_name = ?, phone = ?, address = ? WHERE id = ?',
+        [supplier_name.trim(), contact_name || null, phone || null, address || null, id]
+      );
+      const [updated] = await pool.query('SELECT * FROM suppliers WHERE id = ?', [id]);
+      return res.json({ success: true, message: `Nhà cung cấp "${supplier_name}" đã được cập nhật!`, data: updated[0] });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi cập nhật nhà cung cấp.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
+app.delete('/api/suppliers/:id', async (req, res) => {
+  const { id } = req.params;
+  if (isDbConnected) {
+    try {
+      const [existing] = await pool.query('SELECT id, supplier_name FROM suppliers WHERE id = ?', [id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, error: 'Nhà cung cấp không tồn tại.' });
+      await pool.query('DELETE FROM suppliers WHERE id = ?', [id]);
+      return res.json({ success: true, message: `Nhà cung cấp "${existing[0].supplier_name}" đã được xóa!` });
+    } catch (err) {
+      console.error(err.message);
+      return res.status(500).json({ success: false, error: 'Lỗi server khi xóa. Có thể nhà cung cấp đang liên kết với phiếu nhập kho.' });
+    }
+  }
+  res.status(503).json({ success: false, error: 'Database không khả dụng.' });
+});
+
 // Start Express Server
+
 app.listen(PORT, () => {
   console.log(`===========================================`);
   console.log(`  Express Server running on port ${PORT}   `);
