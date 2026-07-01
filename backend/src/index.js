@@ -1269,3 +1269,106 @@ app.post('/api/invoices', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+// =========================================================================
+// MODULE CRUD ĐƠN HÀNG/YÊU CẦU GỌI MÓN (ORDERS)
+// =========================================================================
+
+// 1. Tạo đơn hàng mới
+app.post('/api/orders', async (req, res) => {
+    const { table_id, created_by } = req.body;
+    try {
+        const [result] = await pool.query(
+            'INSERT INTO orders (table_id, created_by, status) VALUES (?, ?, "Đang xử lý")',
+            [table_id || null, created_by || null]
+        );
+        
+        // Cập nhật trạng thái bàn thành "Có khách" nếu có table_id
+        if (table_id) {
+            await pool.query('UPDATE tables SET status = "Có khách" WHERE id = ?', [table_id]);
+        }
+        
+        res.status(201).json({ 
+            success: true, 
+            message: "Tạo đơn hàng thành công", 
+            data: { id: result.insertId, table_id, created_by, status: "Đang xử lý" } 
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 2. Lấy danh sách đơn hàng
+app.get('/api/orders', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM orders ORDER BY id DESC');
+        res.json({ success: true, data: rows });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 3. Lấy chi tiết đơn hàng (bao gồm các món đã gọi)
+app.get('/api/orders/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [orders] = await pool.query('SELECT * FROM orders WHERE id = ?', [id]);
+        if (orders.length === 0) {
+            return res.status(404).json({ success: false, error: "Không tìm thấy đơn hàng" });
+        }
+        
+        const [items] = await pool.query(
+            'SELECT oi.*, p.product_name, p.price FROM order_items oi LEFT JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?',
+            [id]
+        );
+        res.json({ success: true, data: { ...orders[0], items } });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 4. Thêm món vào đơn hàng
+app.post('/api/orders/:id/items', async (req, res) => {
+    const { id } = req.params;
+    const { product_id, quantity, note } = req.body;
+    
+    if (!product_id || !quantity || quantity <= 0) {
+        return res.status(400).json({ success: false, error: "Vui lòng cung cấp món ăn và số lượng hợp lệ" });
+    }
+
+    try {
+        const [orders] = await pool.query('SELECT id FROM orders WHERE id = ?', [id]);
+        if (orders.length === 0) {
+            return res.status(404).json({ success: false, error: "Không tìm thấy đơn hàng" });
+        }
+
+        const [result] = await pool.query(
+            'INSERT INTO order_items (order_id, product_id, quantity, note, item_status) VALUES (?, ?, ?, ?, "Chờ làm")',
+            [id, product_id, quantity, note || null]
+        );
+        
+        res.status(201).json({ 
+            success: true, 
+            message: "Thêm món thành công", 
+            data: { id: result.insertId, order_id: parseInt(id), product_id, quantity, note, item_status: "Chờ làm" } 
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 5. Hủy món trong đơn hàng (Xóa món)
+app.delete('/api/orders/:id/items/:itemId', async (req, res) => {
+    const { id, itemId } = req.params;
+    try {
+        const [existing] = await pool.query('SELECT id FROM order_items WHERE id = ? AND order_id = ?', [itemId, id]);
+        if (existing.length === 0) {
+            return res.status(404).json({ success: false, error: "Không tìm thấy món trong đơn hàng này" });
+        }
+
+        await pool.query('DELETE FROM order_items WHERE id = ? AND order_id = ?', [itemId, id]);
+        res.json({ success: true, message: "Hủy món thành công" });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
