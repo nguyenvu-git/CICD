@@ -6,6 +6,9 @@ import AxiosDemo from "./pages/AxiosDemo";
 import FormDemo from "./pages/FormDemo";
 import AccountManagement from "./pages/AccountManagement";
 import RoleManagement from "./pages/RoleManagement";
+import VoucherManagement from "./pages/VoucherManagement";
+import CustomerManagement from "./pages/CustomerManagement";
+import InvoiceManagement from "./pages/InvoiceManagement";
 import CategoryManagement from "./pages/CategoryManagement";
 import ProductManagement from "./pages/ProductManagement";
 import SupplierManagement from "./pages/SupplierManagement";
@@ -29,6 +32,11 @@ export default function App() {
             <Route path="/form" element={<FormDemo />} />
             <Route path="/accounts" element={<AccountManagement />} />
             <Route path="/roles" element={<RoleManagement />} />
+            
+            {/* 2. KHAI BÁO 3 ĐƯỜNG DẪN MỚI CHO PROJECT CỦA BẠN */}
+            <Route path="/vouchers" element={<VoucherManagement />} />
+            <Route path="/customers" element={<CustomerManagement />} />
+            <Route path="/invoices" element={<InvoiceManagement />} />
             <Route path="/categories" element={<CategoryManagement />} />
             <Route path="/products" element={<ProductManagement />} />
             <Route path="/suppliers" element={<SupplierManagement />} />
@@ -43,15 +51,15 @@ export default function App() {
               rights reserved.
             </p>
             <div className="flex">
-              <span className="hover:text-slate-355 transition-colors cursor-default">
+              <span className="hover:text-slate-300 transition-colors cursor-default">
                 Vite
               </span>
-              <span>•</span>
-              <span className="hover:text-slate-355 transition-colors ">
-                React.js test
+              <span className="mx-2">•</span>
+              <span className="hover:text-slate-300 transition-colors ">
+                React.js
               </span>
-              <span>•</span>
-              <span className="hover:text-slate-355 transition-colors cursor-default">
+              <span className="mx-2">•</span>
+              <span className="hover:text-slate-300 transition-colors cursor-default">
                 TailwindCSS v4
               </span>
             </div>
