@@ -5,6 +5,31 @@ on:
     branches: ["main"] # Kích hoạt khi có người push code lên nhánh main
 
 jobs:
+  # ci-check:
+  #   name: Kiểm tra mã nguồn (CI)
+  #   runs-on: ubuntu-latest # Chạy trên server đám mây của GitHub
+
+  #   steps:
+  #     - name: Lấy mã nguồn mới nhất
+  #       uses: actions/checkout@v4 # Cập nhật lên v4 cho đồng bộ
+
+  #     - name: Giả lập môi trường Node.js
+  #       uses: actions/setup-node@v4 # Cập nhật lên v4
+
+  #       with:
+  #         node-version: "20"
+
+  #     - name: Cài đặt thư viện Frontend
+  #       run: |
+  #         cd frontend
+  #         npm install
+
+  #     - name: Chạy thử Build Frontend (Dry Build)
+  #       run: |
+  #         cd frontend
+  #         npm run build
+  #         echo "Code Frontend hoàn toàn sạch sẽ, không có lỗi cú pháp!"
+
   deploy:
     runs-on: self-hosted # Ép kịch bản này chạy trên con Ubuntu (Runner) của bạn
 
